@@ -1,0 +1,6 @@
+{
+        "account": "deliever_messag",
+        "password": "xly1234",
+        "host": "smtp.sina.com",
+        "postfix": "@sina.com"
+}
