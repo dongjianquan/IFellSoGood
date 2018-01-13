@@ -1,9 +1,4 @@
 # coding:utf-8
-#import sys
-#stdi,stdo,stde=sys.stdin,sys.stdout,sys.stderr
-#reload(sys)
-#sys.stdin,sys.stdout,sys.stderr=stdi,stdo,stde
-#sys.setdefaultencoding('utf-8')
 import tushare as ts
 import talib as ta
 import datetime
@@ -12,57 +7,54 @@ import sys
 sys.path.append('/home/ubuntu/ys')
 from MailNotification import MailNotification
 from formular import lookback_trade_cal
-from cvExcel import SaveExcel
-
+#from cvExcel import SaveExcel
+from log import create_log
 
 #from formular import RSIRaise
 
+#全局变量定义
+#--------------------------------------------------------
 # 接收通知邮箱
 RECEIVE_ACCOUNTS = [ '181877329@qq.com','347834826@qq.com','825975777@qq.com','13832567834@163.com']
 # 回溯长度设置
 LOOKBACKDAYS = 3
 # 成交量放大倍数
-RATIO = 1.8
+RATIO = 2
+# 上影线比例超过多少就过滤
+UP_LINE_RATIO = 0.3
 # 唐奇安通道设置, 20为短周期，50为长周期
 D_Channel = {'up': 20, 'down':10}
 # 绘图K线长度
 K_Length = 30
+#--------------ta------------------------------------------
 
-
-
-import logging  
-
-logger = logging.getLogger("loggingmodule.NomalLogger")  
-todaystr = datetime.datetime.today().strftime('%Y_%m_%d')
-
-handler = logging.FileHandler("./"+todaystr+"_log.txt")  
-formatter = logging.Formatter("[%(levelname)s][%(funcName)s][%(asctime)s]%(message)s")  
-handler.setFormatter(formatter)  
-logger.addHandler(handler)  
-logger.setLevel(logging.DEBUG) 
-
-logger.info("Start find stokc!" )
-
-#def lookback_trade_cal(last, lookbackdays ):
-#    # 获取交易日历,检查last是否交易日
-#    trade_cal = ts.trade_cal()
-#    while not trade_cal[trade_cal.calendarDate == last].isOpen.values:
-#        last = datetime.datetime.strptime(last, '%Y-%m-%d') - datetime.timedelta(days=1)
-#        last = last.strftime('%Y-%m-%d')
-#
-#    trade_cal = trade_cal[trade_cal.isOpen == 1]
-#    trade_cal.index = range(len(trade_cal))
-#    first = trade_cal.ix[(trade_cal[trade_cal.calendarDate == last].index[0] - lookbackdays + 1), 0]
-#    trade_cal.index = range(len(trade_cal))
-#    first = trade_cal.ix[(trade_cal[trade_cal.calendarDate == last].index[0] - lookbackdays + 1), 0]
-#
-#    return first, last
-def get_tday_data(code):
+#15点前根据当前时间获取成交量系数
+def get_radio_by_hour(now):
+    plus = 1 #系数
     
-    data = ts.get_k_data(code = code, ktype='5')
+    if (now > 15):
+        plus = 1
+    else:
+        if(now < 12):
+            hours = now - 9
+        else:
+            hours = (now - 13) + 2
+        plus =   hours / float(4)  
+        
+    return RATIO *  plus
+    
+
+#15点前获取当前股票数据  通过5分钟数据累加  需要优化性能
+def get_tday_data(code):
+    logger.info("start")
+
+    data = ts.get_k_data(code = code, ktype='5')    
+    #无数据返回全0
     if (len(data) == 0):
         return 0,0,0,0,0
-        
+    
+    #截取最后48条 然后过滤今天的数据
+    
     today = data.tail(48)
     
     data_index = 0
@@ -94,62 +86,26 @@ def get_tday_data(code):
         data_index += 1
     
     #logger.info(today_open,today_close,today_high,today_low,today_volume)
+    logger.info("end")
     return today_open,today_close,today_high,today_low,today_volume        
 
 
-def plot_k(data, code, attachs, d_channel = False):
-    import matplotlib
-    matplotlib.use('Agg')
-    import matplotlib.pyplot as plt
-    import matplotlib.finance as mpf
-    from matplotlib import gridspec
-    import os
+#初始化日志文件
+logger = create_log()
 
-
-
-    fig = plt.figure(figsize = (10,6))
-    gs = gridspec.GridSpec(2,1,height_ratios=[2, 0.8])
-    ax = plt.subplot(gs[0]) 
-    ax2 = plt.subplot(gs[1]) 
-    mpf.candlestick2_ochl(ax, data['open'], data['close'], data['high'], data['low'],
-                     width=0.6, colorup='red', colordown='green', alpha=1)
-
-    # 绘制唐奇安通道
-    if d_channel:
-        ax.plot(data['date'], data['d_up'], color='r', label='Donchian Channel Up: {} days'.format(D_Channel['up']))
-        ax.plot(data['date'], data['d_down'], color='b',
-                label='Donchian Channel Down: {} days'.format(D_Channel['down']))
-    ax.legend()
-    ax.set_title(code)
-    ax.grid(True)
-
-    mpf.volume_overlay(ax2, data['open'], data['close'], data['volume'], colorup='r', colordown='g', width=0.2, alpha=1)
-    ax2.set_xticks(range(0, len(data['date']),2))
-    ax2.set_xticklabels(data['date'][::2], rotation=45)
-    ax2.grid(True)
-    plt.subplots_adjust(hspace = 0)
-    figPath = os.getcwd()+ '/{}.png'.format(code)
-    fig.savefig(figPath,dpi = 100)
-    # plt.show()
-    attachs.append(figPath)
 
 ########### Log记录信息##########
 logger.info("------"*3)
-logger.info(datetime.datetime.now().strftime("%Y-%m-%d  %H:%m"))
+logger.info("Start find stokc,date=%s!" % datetime.datetime.now().strftime("%Y-%m-%d  %H:%m"))
+
 ################################
+
+
 # 通过 tushare获取股票代码列表
-# 中小板 002
-#smeList = ts.get_sme_classified()['code']
-# 创业板 300
-#gemList = ts.get_gem_classified()['code']
-# 沪深300
-#hs300List = ts.get_hs300s()['code']
-# 中证500
-#zz500List = ts.get_zz500s()['code']
 # A股全部
 totList = ts.get_stock_basics().index
+                             
 # 交易日回溯处理
-#last = '2017-11-01'
 last = datetime.datetime.today().strftime('%Y-%m-%d')
 first,last = lookback_trade_cal(last,LOOKBACKDAYS)
 
@@ -160,25 +116,19 @@ logger.info('结束日期: ' + last)
 
 # 通过tushare获取前lookback_days 个交易日数据,并筛选满足收盘价序列的股票
 stockList = totList
-# stockList = ['300706']
 targetDict = {}
 
-fd = open('./log.txt', 'w')
 i = 0
 for stock in stockList:
     data = ts.get_k_data(code = stock,start = first, end = last )
-    logger.info("start analysis code=%s" % stock)
     records = len(data)
     if (records == 0):
         continue
-        
-    logger.info("len=%d" % records)
-    print("start analysis code=%s" % stock)
-     #print data
-    #if len(data) == LOOKBACKDAYS:
+    logger.info("start analysis code=%s len=%d" % (stock,records))
+    print("start analysis code=%s len=%d" % (stock,records))
+
     c_data = data.close.values
-    v_data = data.volume.values
-    
+    v_data = data.volume.values   
     open_data = data.open.values
     high_data = data.high.values
     low_data = data.low.values
@@ -194,111 +144,71 @@ for stock in stockList:
             c_flag = False
             break
         
-	if c_flag:
-            timenow = time.strftime('%H',time.localtime())
-            #print(timenow)
-            #print(timenow < 24)
-            #print(timenow < 100)
-#           data_index = 1
-#原来的放量算法             
-#            if v_data[-1* LOOKBACKDAYS ] * RATIO < v_data[data_index]:
-#                while data_index < LOOKBACKDAYS - 1:
-#                    if v_data[data_index] > v_data[data_index + 1]:
-#                        data_index += 1
-#                    else:
-#                        v_flag = False
-#                        break
-#            else:
-#                v_flag = False
-#            print "dateindex"
-#            print data_index,(-1* LOOKBACKDAYS)
-#            print v_data
-#            print v_data[-1* LOOKBACKDAYS ]             
-            #连续1 2 3 这3天放量 都是第0天的1.8倍以上
-#            while data_index < LOOKBACKDAYS - 1:
-#                if v_data[data_index] > v_data[-1* LOOKBACKDAYS ] * RATIO:
-#                    data_index += 1
-#                else:
-#                    v_flag = False
-#                    break
+    if c_flag:
+        timenow = time.strftime('%H',time.localtime())
+        is_holiday = ts.is_holiday(datetime.datetime.today().strftime('%Y-%m-%d'))
 
-            if timenow < "15":
-                today_open,today_close,today_high,today_low,today_volume = get_tday_data(stock)
-                if today_open == 0:
-                    continue
-                    
-                if today_close <= today_open:
-                    continue
-                #当天放量
-                v_data_index = 0
-                while v_data_index < records - 1:
-                    #今天比昨天放量  
-                    if today_volume > v_data[v_data_index+1] * RATIO * 0.8:
-                        v_data_index = v_data_index + 1
-                    else:
-                        v_flag = False
-                        break  
-                        
-                #if today_volume > v_data[LOOKBACKDAYS-1] * RATIO * 0.75  and today_volume > v_data[LOOKBACKDAYS-2 ] * RATIO * 0.75:
-                #    v_flag = True
-                #else:
-                #    v_flag = False
-                logger.info("code=%s" % stock)
-                logger.info(today_volume)
-                logger.info(v_data[1])
-                logger.info(v_flag)
-
-
-            else:
-                #筛掉 记录丢失的股票
-                if(records != LOOKBACKDAYS):
-                    continue
-                #print ("22222222222222222")    
-                if open_data[records-1] > c_data[records-1]:
-                    continue
-                    
-                #上影线不要太长
-                if (high_data[records-1] - c_data[records-1]) > (c_data[records-1] - open_data[records-1])*0.3:
-                    continue                
-                    
-                #if v_data[records-1] > v_data[records-2] * RATIO and v_data[records-1] > v_data[records-3 ] * RATIO:
-                #    v_flag = True
-                #else:
-                #    v_flag = False
-                
-                
+        if timenow < "15" and (not is_holiday):
+            today_open,today_close,today_high,today_low,today_volume = get_tday_data(stock)
+            if today_open == 0:
+                continue
+            
+            #今天上涨    
+            if today_close <= today_open:
+                continue
+            
+            #上影线不要太长
+            if (today_high - today_close) > (today_close - today_open) * UP_LINE_RATIO:
+                continue  
+            
+            #当天放量
+            RaalTimeRadio =  get_radio_by_hour(int(timenow)) #根据当前时间获取放量 比例
+            v_data_index = 0
+            while v_data_index < records - 1:
+                #今天比昨天放量  
+                if today_volume > v_data[v_data_index+1] * RaalTimeRadio:
+                    v_data_index = v_data_index + 1
+                else:
+                    v_flag = False
+                    break  
     
-
-                #当天放量
-                v_data_index = 0
-                while (v_data_index < (records - 1)):
-  
-                    #当天放量    
-                    if (v_data[records-1] > (v_data[v_data_index] * RATIO)):
-                        v_data_index = v_data_index+1
-                    else:
-                        v_flag = False
-                        break     
+        else:
+            #筛掉 记录丢失的股票
+            if(records != LOOKBACKDAYS):
+                continue
+            
+            #今天上涨    
+            if open_data[records-1] > c_data[records-1]:
+                continue
+                
+            #上影线不要太长
+            if (high_data[records-1] - c_data[records-1]) > (c_data[records-1] - open_data[records-1]) * UP_LINE_RATIO:
+                continue                
+        
+            #当天放量
+            v_data_index = 0
+            while (v_data_index < (records - 1)):
+          
+                #当天放量    
+                if (v_data[records-1] > (v_data[v_data_index] * RATIO)):
+                    v_data_index = v_data_index+1
+                else:
+                    v_flag = False
+                    break     
                         
         #前两天成交量相差不超过50%               
         if abs(v_data[1]-v_data[0])/v_data[1] > 0.5:
             v_flag = False
                         
         if c_flag and v_flag:
-#            print('第0天 成交量:[%d]  ' % v_data[LOOKBACKDAYS-3])
-#            print('近2天 成交量:[%d] [%d]: ' % (v_data[1],v_data[2]))
-            logger.info('Find one stock raise:  ' + stock)
-            logger.info(v_data[records-1])
-            logger.info(v_data[0])
-            logger.info(v_data[1])
-            logger.info(data)
+            logger.info('Find one stock raise: %s ,todayV[%d] 1DayBefore[%d] 2DayBefore[%d] ' % (stock,v_data[records-1],v_data[1],v_data[0]))
+            print('Find one stock raise: %s ,todayV[%d] 1DayBefore[%d] 2DayBefore[%d] ' % (stock,v_data[records-1],v_data[1],v_data[0]))
+            logger.info("\n%s"%data)
             targetDict[stock] = data
-#            i=i+1
-#            if i==3:
-#                break
 
     else:
         continue
+    
 # 量价条件
 cvSet = set()
 # 筛选条件1：阳线
